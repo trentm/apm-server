@@ -20,6 +20,7 @@ package profile
 import (
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 
@@ -44,9 +45,10 @@ var (
 )
 
 const (
-	pprofMediaType    = "application/x-protobuf"
-	metadataMediaType = "application/json"
-	requestMediaType  = "multipart/form-data"
+	pprofMediaType      = "application/x-protobuf"
+	speedscopeMediaType = "application/json"
+	metadataMediaType   = "application/json"
+	requestMediaType    = "multipart/form-data"
 
 	// value for the "messagetype" param
 	pprofMessageType = "perftools.profiles.Profile"
@@ -81,6 +83,7 @@ func Handler(processor model.BatchProcessor) request.Handler {
 
 		var totalLimitRemaining int64 = profileContentLengthLimit
 		var profiles []*pprof_profile.Profile
+		var speedscopeFiles []*model.SpeedscopeFile
 		var profileMetadata model.Metadata
 		mr, err := c.Request.MultipartReader()
 		if err != nil {
@@ -161,6 +164,32 @@ func Handler(processor model.BatchProcessor) request.Handler {
 				}
 				profiles = append(profiles, profile)
 				totalLimitRemaining = r.N
+
+			case "speedscope":
+				params, err := validateContentType(http.Header(part.Header), speedscopeMediaType)
+				log.Printf("XXX params: %#v\n", params)
+				if err != nil {
+					return nil, requestError{
+						id:  request.IDResponseErrorsValidate,
+						err: errors.Wrap(err, "invalid profile"),
+					}
+				}
+				r := &decoder.LimitedReader{R: part, N: totalLimitRemaining}
+				sf, err := model.ParseSpeedscopeFile(r)
+				if err != nil {
+					if r.N < 0 {
+						return nil, requestError{
+							id:  request.IDResponseErrorsRequestTooLarge,
+							err: err,
+						}
+					}
+					return nil, requestError{
+						id:  request.IDResponseErrorsDecode,
+						err: errors.Wrap(err, "failed to decode profile"),
+					}
+				}
+				speedscopeFiles = append(speedscopeFiles, sf)
+				totalLimitRemaining = r.N
 			}
 		}
 
@@ -171,8 +200,15 @@ func Handler(processor model.BatchProcessor) request.Handler {
 				Profile:  p,
 			}
 		}
+		modelSpeedscopeProfiles := make([]*model.SpeedscopeProfileEvent, len(speedscopeFiles))
+		for i, p := range speedscopeFiles {
+			modelSpeedscopeProfiles[i] = &model.SpeedscopeProfileEvent{
+				Metadata: profileMetadata,
+				File:     p,
+			}
+		}
 
-		if err := processor.ProcessBatch(c.Request.Context(), &model.Batch{Profiles: modelProfiles}); err != nil {
+		if err := processor.ProcessBatch(c.Request.Context(), &model.Batch{Profiles: modelProfiles, SpeedscopeProfiles: modelSpeedscopeProfiles}); err != nil {
 			switch err {
 			case publish.ErrChannelClosed:
 				return nil, requestError{

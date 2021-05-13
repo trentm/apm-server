@@ -48,6 +48,8 @@ type Batch struct {
 	Metricsets   []*Metricset
 	Errors       []*Error
 	Profiles     []*PprofProfile
+	// XXX would like to merge into one SpeedscopeProfile class with Metadata field
+	SpeedscopeProfiles []*SpeedscopeProfileEvent
 }
 
 // Reset resets the batch to be empty, but it retains the underlying storage.
@@ -57,13 +59,14 @@ func (b *Batch) Reset() {
 	b.Metricsets = b.Metricsets[:0]
 	b.Errors = b.Errors[:0]
 	b.Profiles = b.Profiles[:0]
+	b.SpeedscopeProfiles = b.SpeedscopeProfiles[:0]
 }
 
 func (b *Batch) Len() int {
 	if b == nil {
 		return 0
 	}
-	return len(b.Transactions) + len(b.Spans) + len(b.Metricsets) + len(b.Errors) + len(b.Profiles)
+	return len(b.Transactions) + len(b.Spans) + len(b.Metricsets) + len(b.Errors) + len(b.Profiles) + len(b.SpeedscopeProfiles)
 }
 
 func (b *Batch) Transform(ctx context.Context, cfg *transform.Config) []beat.Event {
@@ -81,6 +84,9 @@ func (b *Batch) Transform(ctx context.Context, cfg *transform.Config) []beat.Eve
 		events = event.appendBeatEvents(ctx, cfg, events)
 	}
 	for _, event := range b.Profiles {
+		events = event.appendBeatEvents(cfg, events)
+	}
+	for _, event := range b.SpeedscopeProfiles {
 		events = event.appendBeatEvents(cfg, events)
 	}
 	return events
