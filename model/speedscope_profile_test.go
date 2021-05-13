@@ -24,9 +24,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/transform"
+	"github.com/elastic/beats/v7/libbeat/beat"
+	"github.com/elastic/beats/v7/libbeat/common"
 )
 
 // This is https://github.com/jlfwong/speedscope/blob/main/sample/profiles/speedscope/0.0.1/simple.speedscope.json
@@ -94,55 +97,47 @@ func TestSpeedscopeProfileTransform(t *testing.T) {
 
 	batch := &model.Batch{SpeedscopeProfiles: []*model.SpeedscopeProfileEvent{&sp}}
 	output := batch.Transform(context.Background(), &transform.Config{DataStreams: true})
-	log.Printf("XXX output: %#v\n", output)
+	for i, e := range output {
+		log.Printf("XXX output[%d].Fields: %v\n", i, e.Fields)
+	}
 
-	// XXX uncomment this when done first pass of `appendBeatEvents`
-	// require.Len(t, output, 5)
+	require.Len(t, output, 4)
 
-	// if profileMap, ok := output[0].Fields["profile"].(common.MapStr); ok {
-	// 	assert.NotZero(t, profileMap["id"])
-	// 	profileMap["id"] = "random"
-	// }
+	if profileMap, ok := output[0].Fields["profile"].(common.MapStr); ok {
+		assert.NotZero(t, profileMap["id"])
+		profileMap["id"] = "random"
+	}
 
-	// // XXX adjust the expected values here (currently cut 'n pasted from profile_test.go)
-	// assert.Equal(t, beat.Event{
-	// 	Timestamp: timestamp,
-	// 	Fields: common.MapStr{
-	// 		"data_stream.type":    "metrics",
-	// 		"data_stream.dataset": "apm.profiling.myservice",
-	// 		"processor":           common.MapStr{"event": "profile", "name": "profile"},
-	// 		"service": common.MapStr{
-	// 			"name":        "myService",
-	// 			"environment": "staging",
-	// 		},
-	// 		"labels": common.MapStr{
-	// 			"key1": []string{"abc", "def"},
-	// 			"key2": []string{"ghi"},
-	// 		},
-	// 		"profile": common.MapStr{
-	// 			"id":                "random",
-	// 			"duration":          int64(10 * time.Second),
-	// 			"cpu.ns":            int64(123),
-	// 			"wall.us":           int64(789),
-	// 			"inuse_space.bytes": int64(456),
-	// 			"samples.count":     int64(1),
-	// 			"top": common.MapStr{
-	// 				"function": "foo",
-	// 				"filename": "foo.go",
-	// 				"line":     int64(1),
-	// 				"id":       "98430081820ed765",
-	// 			},
-	// 			"stack": []common.MapStr{{
-	// 				"function": "foo",
-	// 				"filename": "foo.go",
-	// 				"line":     int64(1),
-	// 				"id":       "98430081820ed765",
-	// 			}, {
-	// 				"function": "bar",
-	// 				"filename": "bar.go",
-	// 				"id":       "48a37c90ad27a659",
-	// 			}},
-	// 		},
-	// 	},
-	// }, output[0])
+	assert.Equal(t, beat.Event{
+		Timestamp: output[0].Timestamp,
+		Fields: common.MapStr{
+			"data_stream.type":    "metrics",
+			"data_stream.dataset": "apm.profiling.myservice",
+			"processor":           common.MapStr{"event": "profile", "name": "profile"},
+			"service": common.MapStr{
+				"name":        "myService",
+				"environment": "staging",
+			},
+			"profile": common.MapStr{
+				"id":            "random",
+				"duration":      int64(42), // XXX current hack value
+				"wall.us":       int64(2),
+				"samples.count": int64(1),
+				"top": common.MapStr{
+					"function": "a",
+					"id":       "d24ec4f1a98c6e5b",
+				},
+				"stack": []common.MapStr{{
+					"function": "a",
+					"id":       "d24ec4f1a98c6e5b",
+				}, {
+					"function": "b",
+					"id":       "65f708ca92d04a61",
+				}, {
+					"function": "c",
+					"id":       "44bc2cf5ad770999",
+				}},
+			},
+		},
+	}, output[0])
 }

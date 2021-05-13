@@ -21,10 +21,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 
+	"github.com/cespare/xxhash/v2"
+	"github.com/elastic/apm-server/datastreams"
 	"github.com/elastic/apm-server/decoder"
 	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/beats/v7/libbeat/beat"
+	"github.com/elastic/beats/v7/libbeat/common"
+	"github.com/gofrs/uuid"
 )
 
 // SpeedscopeProfileEvent represents a speedscope profile file uploaded to the intake API.
@@ -95,85 +100,146 @@ func ParseSpeedscopeFile(r io.Reader) (*SpeedscopeFile, error) {
 // appendBeatEvents transforms a SpeedscopeFile into a sequence of beat.Events
 // (one per profile sampled stack), and appends them to events.
 func (sp SpeedscopeProfileEvent) appendBeatEvents(cfg *transform.Config, events []beat.Event) []beat.Event {
-	log.Printf("XXX NYI appendBeatEvents\n")
+	// XXX Timestamp troubles:
+	// - The `startValue` is *not* spec'd to be the time the profile was taken
+	//   in absolute value. That leaves getting the @timestamp elsewhere.
+	//   We have "now" (i.e. roughly the intake time).
+	// - As well, for the "duration" of the profile, there is no such field
+	//   in the speedscope spec. If "unit" is a time, then possible "endValue"
+	//   can be added to our start time, but that isn't always possible.
+	// - Idea: could add separate intake API field for the profile start time?
+	intakeTime := time.Now()
 
-	// for _, profile := range sp.File.Profiles {
+	frames := sp.File.Shared.Frames
 
-	// 	// XXX Spec says profile.startValue is "typically a timestamp"
-	// 	//     and the (optional) event "at" values, presumably, are the same "unit".
-	// 	//     Do we need some sanity checks that these aren't non-timestamp values?
+	for _, profile := range sp.File.Profiles {
 
-	// 	// Generate a unique profile ID shared by all samples in the
-	// 	// profile.  If we can't generate a UUID for whatever reason,
-	// 	// omit the profile ID.
-	// 	var profileID string
-	// 	if uuid, err := uuid.NewV4(); err == nil {
-	// 		profileID = fmt.Sprintf("%x", uuid)
-	// 	}
+		// Generate a unique profile ID shared by all samples in the
+		// profile.  If we can't generate a UUID for whatever reason,
+		// omit the profile ID.
+		var profileID string
+		if uuid, err := uuid.NewV4(); err == nil {
+			profileID = fmt.Sprintf("%x", uuid)
+		}
 
-	// 	for _, evt := range profile.Events {
-	// 		profileFields := common.MapStr{}
-	// 		if profileID != "" {
-	// 			profileFields["id"] = profileID
-	// 		}
+		// XXX Duration: profile.go is doing `profileFields["duration"] = pp.Profile.DurationNanos`
+		//     but fields.yml says `Duration of the profile, in microseconds.` What unit is correct?
+		// XXX See "Timestamp troubles" above.
+		//  duration := int64(profile.EndValue - profile.StartValue) ?
+		duration := int64(42)
 
-	// 		// XXX Duration: profile.go is doing `profileFields["duration"] = pp.Profile.DurationNanos`
-	// 		//     but fields.yml says `Duration of the profile, in microseconds.` What unit is correct?
-	// 		// TODO: calc from `(StartValue - EndValue) * scale from Unit`
-	// 		// profileFields["duration"] = ...
+		var at float64
+		frameIdStack := make(int64Stack, 0) // current stack of indeces into `frames`
 
-	// 		// From this:
-	// 		// XXX note: bug in speedscope export that loses the "line" value?
-	// 		//
-	// 		// "shared": {
-	// 		// 	"frames": [
-	// 		// 	  {
-	// 		// 	    "name": "parserOnIncoming",
-	// 		// 	    "file": "_http_server.js",
-	// 		// 	    "line": 0
-	// 		// 	  },
-	// 		// 	{
-	// 		// 		"name": "Writable.write",
-	// 		// 		"file": "/Users/trentm/el/stream-chopper/node_modules/readable-stream/lib/_stream_writable.js",
-	// 		// 		"line": 0
-	// 		// 	},
-	// 		// "events": [
-	// 		// 	{
-	// 		// 	  "type": "O",
-	// 		// 	  "frame": 0,
-	// 		// 	  "at": 0
-	// 		// 	},
-	// 		// 	{
-	// 		// 	  "type": "C",
-	// 		// 	  "frame": 0,
-	// 		// 	  "at": 1000
-	// 		// 	},
-	// 		//
-	// 		// To this:
-	// 		//
-	// 		// "profile": {
-	// 		// 	"duration": 10208325000,
-	// 		// 	"stack": [
-	// 		// 	  {
-	// 		// 	    "filename": "/Users/trentm/el/apm-nodejs-dev/perf/bin/pathosapp.js",
-	// 		// 	    "line": 147,
-	// 		// 	    "function": "err",
-	// 		// 	    "id": "e0b9a208dc1a04e5"
-	// 		// 	  },
-	// 		// 	  ...
-	// 		// 	],
-	// 		// 	"top": {
-	// 		// 		"filename": "/Users/trentm/el/apm-nodejs-dev/perf/bin/pathosapp.js",
-	// 		// 		"line": 147,
-	// 		// 		"function": "err",
-	// 		// 		"id": "e0b9a208dc1a04e5"
-	// 		// 	},
-	// 		// 	"id": "664f8b705db34cdf824ae621dc841866",
-	// 		// 	"wall.us": 1000,
-	// 		// 	"samples.count": 1
-	// 		// },
-	// 	}
-	// }
+		takeSample := func(startVal, endVal float64) {
+			// Generic fields for all events.
+			fields := mapStr{"processor": profileProcessorEntry}
+			if cfg.DataStreams {
+				fields[datastreams.TypeField] = datastreams.MetricsType
+				dataset := fmt.Sprintf("%s.%s", ProfilesDataset, datastreams.NormalizeServiceName(sp.Metadata.Service.Name))
+				fields[datastreams.DatasetField] = dataset
+			}
+			sp.Metadata.set(&fields, nil)
 
+			// "profile" field
+			profileFields := common.MapStr{}
+			if profileID != "" {
+				profileFields["id"] = profileID
+			}
+			profileFields["duration"] = duration
+			// XXX Currently assuming this profile is measuring wall time, so set "wall.us".
+			// XXX Is there a way we could tell if this is "cpu.ns"? Perhaps if unit is "nanoseconds"
+			// XXX we can assume not "wall time"??  If "bytes" use alloc_space.bytes.
+			// XXX If "none" do we use "alloc_objects.count" or "inuse_objects.count" or ...?
+			profileFields["wall.us"] = int64(endVal - startVal) // XXX adjust for units given
+			profileFields["samples.count"] = int64(1)
+			if frameIdStack.Len() > 0 {
+				hash := xxhash.New()
+				stack := make([]common.MapStr, frameIdStack.Len())
+				for i, frameId := range frameIdStack {
+					frame := frames[frameId]
+					log.Printf("XXX add stack entry for frameId=%d frame=%#v\n", frameId, frames[frameId])
+					hash.WriteString(frame.Name)
+					frameFields := mapStr{
+						"id":       fmt.Sprintf("%x", hash.Sum(nil)),
+						"function": frame.Name,
+					}
+					if frameFields.maybeSetString("filename", frame.File) {
+						if frame.Line > 0 {
+							fields.set("line", frame.Line)
+						}
+					}
+					stack[i] = common.MapStr(frameFields)
+
+				}
+				profileFields["stack"] = stack
+				profileFields["top"] = stack[0]
+			}
+			fields[profileDocType] = profileFields
+
+			events = append(events, beat.Event{
+				Timestamp: intakeTime,
+				Fields:    common.MapStr(fields),
+			})
+		}
+
+		for i, evt := range profile.Events {
+			if i == 0 {
+				// XXX assert evt.Type == "O"
+				at = evt.At
+				frameIdStack.Push(evt.Frame)
+				continue
+			} else if evt.At != at {
+				// We are "at" a new timestamp, the current
+				// "frameIdStack" is a sample.
+				takeSample(at, evt.At)
+			}
+
+			at = evt.At
+			if evt.Type == "O" {
+				frameIdStack.Push(evt.Frame)
+			} else {
+				if frameIdStack.Len() == 0 {
+					// XXX log error here; how to get apm-server's logger?
+					goto AbortEarly
+				}
+				popped := frameIdStack.Pop()
+				if popped != evt.Frame {
+					// XXX log error here
+					goto AbortEarly
+				}
+			}
+		}
+	}
+
+AbortEarly:
 	return events
+}
+
+type int64Stack []int64
+
+func (s *int64Stack) Push(v int64) {
+	*s = append(*s, v)
+}
+
+func (s *int64Stack) Pop() int64 {
+	l := len(*s)
+	if l == 0 {
+		panic("empty stack")
+	}
+	v := (*s)[l-1]
+	*s = (*s)[:l-1]
+	return v
+}
+
+func (s *int64Stack) Peek() int64 {
+	l := len(*s)
+	if l == 0 {
+		panic("empty stack")
+	}
+	return (*s)[l-1]
+}
+
+func (s *int64Stack) Len() int {
+	return len(*s)
 }
