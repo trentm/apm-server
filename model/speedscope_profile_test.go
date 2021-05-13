@@ -68,12 +68,59 @@ var simpleEvented = []byte(`{
     "version": "0.0.1"
 }`)
 
-func TestParseSpeedscopeFile(t *testing.T) {
+var simpleSampled = []byte(`{
+  "exporter": "speedscope@0.6.0",
+  "$schema": "https://www.speedscope.app/file-format-schema.json",
+  "name": "Two Samples",
+  "activeProfileIndex": 1,
+  "profiles": [
+    {
+      "type": "sampled",
+      "name": "one",
+      "unit": "seconds",
+      "startValue": 0,
+      "endValue": 14,
+      "samples": [[0, 1, 2], [0, 1, 2], [0, 1, 3], [0, 1, 2], [0, 1]],
+      "weights": [1, 1, 4, 3, 5]
+    },
+    {
+      "type": "sampled",
+      "name": "two",
+      "unit": "seconds",
+      "startValue": 0,
+      "endValue": 14,
+      "samples": [[0, 1, 2], [0, 1, 2], [0, 1, 3], [0, 1, 2], [0, 1]],
+      "weights": [1, 1, 4, 3, 5]
+    }
+  ],
+  "shared": {
+    "frames": [{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}]
+  }
+}`)
+
+func TestParseSpeedscopeFileWithEvented(t *testing.T) {
 	r := bytes.NewReader(simpleEvented)
 	sf, err := model.ParseSpeedscopeFile(r)
 	if assert.NoError(t, err) {
 		assert.Len(t, sf.Profiles, 1)
-		assert.Equal(t, sf.Profiles[0].Type, "evented")
+		p, ok := sf.Profiles[0].(*model.EventedProfile)
+		assert.True(t, ok)
+		assert.Equal(t, model.Evented, p.Type)
+		assert.Len(t, sf.Shared.Frames, 4)
+	}
+}
+
+func TestParseSpeedscopeFileWithSampled(t *testing.T) {
+	r := bytes.NewReader(simpleSampled)
+	sf, err := model.ParseSpeedscopeFile(r)
+	if assert.NoError(t, err) {
+		assert.Len(t, sf.Profiles, 2)
+		p, ok := sf.Profiles[0].(*model.SampledProfile)
+		assert.True(t, ok)
+		assert.Equal(t, model.Sampled, p.Type)
+		assert.Len(t, p.Samples, 5)
+		assert.Len(t, p.Samples[0], 3)
+		assert.Len(t, p.Weights, 5)
 		assert.Len(t, sf.Shared.Frames, 4)
 	}
 }
@@ -120,7 +167,7 @@ func TestSpeedscopeProfileTransform(t *testing.T) {
 			},
 			"profile": common.MapStr{
 				"id":            "random",
-				"duration":      int64(42), // XXX current hack value
+				"duration":      float64(14),
 				"wall.us":       int64(2),
 				"samples.count": int64(1),
 				"top": common.MapStr{

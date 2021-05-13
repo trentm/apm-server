@@ -223,7 +223,7 @@ func Handler(processor model.BatchProcessor) request.Handler {
 			}
 			return nil, err
 		}
-		return &result{Accepted: len(modelProfiles)}, nil
+		return &result{Accepted: len(modelProfiles) + len(modelSpeedscopeProfiles)}, nil
 	}
 	return func(c *request.Context) {
 		result, err := handle(c)
