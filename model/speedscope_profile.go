@@ -508,8 +508,8 @@ func (sp SpeedscopeProfileEvent) appendBeatEvents(cfg *transform.Config, events 
 								}
 							}
 						}
-						stack[i] = common.MapStr(frameFields)
-
+						// Reverse order from `frameIdStack`.
+						stack[len(frameIdStack)-1-i] = common.MapStr(frameFields)
 					}
 					profileFields["stack"] = stack
 					profileFields["top"] = stack[0]
