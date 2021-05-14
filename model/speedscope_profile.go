@@ -41,13 +41,13 @@ type SpeedscopeProfileEvent struct {
 }
 
 type SpeedscopeFile struct {
-	Schema *string `json:"$schema"`
+	Schema             *string  `json:"$schema"`
 	ActiveProfileIndex *float64 `json:"activeProfileIndex,omitempty"`
-	Exporter *string `json:"exporter,omitempty"`
-	Name *string `json:"name,omitempty"`
+	Exporter           *string  `json:"exporter,omitempty"`
+	Name               *string  `json:"name,omitempty"`
 	// collection of EventedProfile or SampledProfile
 	Profiles []Profile `json:"profiles"`
-	Shared Shared `json:"shared"`
+	Shared   Shared    `json:"shared"`
 }
 
 type Profile interface {
@@ -55,32 +55,32 @@ type Profile interface {
 }
 
 type EventedProfile struct {
-	EndValue float64 `json:"endValue"`
-	Events []FrameEvent `json:"events"`
-	Name string `json:"name"`
-	StartValue float64 `json:"startValue"`
-	Type ProfileType `json:"type"`
-	Unit ValueUnit `json:"unit"`
+	EndValue   float64      `json:"endValue"`
+	Events     []FrameEvent `json:"events"`
+	Name       string       `json:"name"`
+	StartValue float64      `json:"startValue"`
+	Type       ProfileType  `json:"type"`
+	Unit       ValueUnit    `json:"unit"`
 }
 
 func (e EventedProfile) isProfile() {}
 
 type SampledProfile struct {
-	EndValue float64 `json:"endValue"`
-	Name string `json:"name"`
-	Samples [][]float64 `json:"samples"`
-	StartValue float64 `json:"startValue"`
-	Type ProfileType `json:"type"`
-	Unit ValueUnit `json:"unit"`
-	Weights []float64 `json:"weights"`
+	EndValue   float64     `json:"endValue"`
+	Name       string      `json:"name"`
+	Samples    [][]float64 `json:"samples"`
+	StartValue float64     `json:"startValue"`
+	Type       ProfileType `json:"type"`
+	Unit       ValueUnit   `json:"unit"`
+	Weights    []float64   `json:"weights"`
 }
 
 func (e SampledProfile) isProfile() {}
 
 type FrameEvent struct {
-	At float64 `json:"at"`
-	Frame int64 `json:"frame"`
-	Type FrameEventType `json:"type"`
+	At    float64        `json:"at"`
+	Frame int64          `json:"frame"`
+	Type  FrameEventType `json:"type"`
 }
 
 type Shared struct {
@@ -88,10 +88,10 @@ type Shared struct {
 }
 
 type Frame struct {
-	Col *int64 `json:"col,omitempty"`
+	Col  *int64  `json:"col,omitempty"`
 	File *string `json:"file,omitempty"`
-	Line *int64 `json:"line,omitempty"`
-	Name string `json:"name"`
+	Line *int64  `json:"line,omitempty"`
+	Name string  `json:"name"`
 }
 
 type FrameEventType string
