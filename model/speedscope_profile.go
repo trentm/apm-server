@@ -466,7 +466,7 @@ func (sp SpeedscopeProfileEvent) appendBeatEvents(cfg *transform.Config, events 
 			}
 
 			var at float64
-			frameIdStack := make(int64Stack, 0) // current stack of indices into `frames`
+			frameIdxStack := make(int64Stack, 0) // current stack of indices into `frames`
 
 			takeSample := func(startVal, endVal float64) {
 				// Generic fields for all events.
@@ -490,12 +490,12 @@ func (sp SpeedscopeProfileEvent) appendBeatEvents(cfg *transform.Config, events 
 				// XXX If "none" do we use "alloc_objects.count" or "inuse_objects.count" or ...?
 				profileFields["wall.us"] = int64(endVal - startVal) // XXX adjust for units given
 				profileFields["samples.count"] = int64(1)
-				if frameIdStack.Len() > 0 {
+				if frameIdxStack.Len() > 0 {
 					hash := xxhash.New()
-					stack := make([]common.MapStr, frameIdStack.Len())
-					for i, frameId := range frameIdStack {
-						frame := frames[frameId]
-						log.Printf("XXX add stack entry for frameId=%d frame=%#v\n", frameId, frames[frameId])
+					stack := make([]common.MapStr, frameIdxStack.Len())
+					for i, frameIdx := range frameIdxStack {
+						frame := frames[frameIdx]
+						log.Printf("XXX add stack entry for frameIdx=%d frame=%#v\n", frameIdx, frames[frameIdx])
 						hash.WriteString(frame.Name)
 						frameFields := mapStr{
 							"id":       fmt.Sprintf("%x", hash.Sum(nil)),
@@ -508,8 +508,8 @@ func (sp SpeedscopeProfileEvent) appendBeatEvents(cfg *transform.Config, events 
 								}
 							}
 						}
-						// Reverse order from `frameIdStack`.
-						stack[len(frameIdStack)-1-i] = common.MapStr(frameFields)
+						// Reverse order from `frameIdxStack`.
+						stack[len(frameIdxStack)-1-i] = common.MapStr(frameFields)
 					}
 					profileFields["stack"] = stack
 					profileFields["top"] = stack[0]
@@ -526,23 +526,23 @@ func (sp SpeedscopeProfileEvent) appendBeatEvents(cfg *transform.Config, events 
 				if i == 0 {
 					// XXX assert evt.Type == "O"
 					at = evt.At
-					frameIdStack.Push(evt.Frame)
+					frameIdxStack.Push(evt.Frame)
 					continue
 				} else if evt.At != at {
 					// We are "at" a new timestamp, the current
-					// "frameIdStack" is a sample.
+					// "frameIdxStack" is a sample.
 					takeSample(at, evt.At)
 				}
 
 				at = evt.At
 				if evt.Type == "O" {
-					frameIdStack.Push(evt.Frame)
+					frameIdxStack.Push(evt.Frame)
 				} else {
-					if frameIdStack.Len() == 0 {
+					if frameIdxStack.Len() == 0 {
 						// XXX log error here; how to get apm-server's logger?
 						goto AbortEarly
 					}
-					popped := frameIdStack.Pop()
+					popped := frameIdxStack.Pop()
 					if popped != evt.Frame {
 						// XXX log error here
 						goto AbortEarly
